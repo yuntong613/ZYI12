@@ -11,8 +11,6 @@
 
 extern CModelDllApp theApp;
 
-CCriticalSection m_ComSec;
-
 DWORD CALLBACK QuertyThread(LPVOID pParam)
 {
 	YSerialDevice* pDevice = (YSerialDevice*)pParam;
@@ -27,7 +25,6 @@ DWORD CALLBACK QuertyThread(LPVOID pParam)
 
 YSerialDevice::YSerialDevice(LPCSTR pszAppPath)
 	: m_nBaudRate(0)
-	, m_nComPort(0)
 	, m_bStop(true)
 {
 	m_nParity = 0;
@@ -90,19 +87,8 @@ BOOL YSerialDevice::InitConfig(CString strFilePath)
 	m_lRate = iniFile.GetUInt("param", "UpdateRate", 3000);
 	m_nUseLog = iniFile.GetUInt("param", "Log", 0);
 
-	m_nComPort = iniFile.GetUInt("ComInfo", "ComPort", 1);
 	m_nBaudRate = iniFile.GetUInt("ComInfo", "BaudRate", 9600);
 	m_nParity = iniFile.GetUInt("ComInfo", "Parity", 0);
-
-	CString strSec;
-	strSec.Format("COM%d", m_nComPort);
-	iniFile.GetArray(strSec, "Addr", &m_strSlaveAddr);
-
-	bool bOpen = m_Com.Open(m_nComPort, m_nBaudRate, m_nParity);
-	if (!bOpen)
-	{
-		AfxMessageBox("串口打开失败");
-	}
 
 	MakeItems();
 	return TRUE;
@@ -121,31 +107,45 @@ void YSerialDevice::MakeItems()
 	DWORD dwItemPId = 0L;
 	CString strItemName, strItemDesc;
 
-	for (int i = 0; i < m_strSlaveAddr.GetCount(); i++)
+	CIniFile iniFile(m_strConfigFile);
+	m_lRate = iniFile.GetUInt("param", "UpdateRate", 3000);
+	m_nUseLog = iniFile.GetUInt("param", "Log", 0);
+
+	CStringArray _ComPortArray, _SlaveAddr;
+	iniFile.GetArray("ComInfo", "ComPort", &_ComPortArray);
+
+	CString strSec;
+
+	for (int j = 0; j < _ComPortArray.GetCount(); j++)
 	{
-		BYTE bAddr = atoi(m_strSlaveAddr.GetAt(i));
-		for (int k = 1; k <= 12; k++)
+		int nPort = atoi(_ComPortArray.GetAt(j));
+		strSec.Format("COM%d",nPort);
+		iniFile.GetArray(strSec, "Addr", &_SlaveAddr);
+
+		for (int i = 0; i < _SlaveAddr.GetCount(); i++)
 		{
-			strItemName.Format("S_%d_%d", bAddr, k);
-			strItemDesc.Format("%d回路状态", k);
-			pItemStatus = new YShortItem(dwItemPId++, strItemName, strItemDesc);
+			BYTE bAddr = atoi(_SlaveAddr.GetAt(i));
+			for (int k = 1; k <= 12; k++)
+			{
+				strItemName.Format("S_%d_%d_%d", nPort, bAddr, k);
+				strItemDesc.Format("%d回路状态", k);
+				pItemStatus = new YShortItem(dwItemPId++, strItemName, strItemDesc);
 
-			m_ItemsArray.SetAt(pItemStatus->GetName(), (CObject*)pItemStatus);
+				m_ItemsArray.SetAt(pItemStatus->GetName(), (CObject*)pItemStatus);
 
-			strItemName.Format("CS_%d_%d",bAddr, k);
-			strItemDesc.Format("%d回路控制", k);
+				strItemName.Format("CS_%d_%d_%d", nPort, bAddr, k);
+				strItemDesc.Format("%d回路控制", k);
+				pItemCtrl = new YShortItem(dwItemPId++, strItemName, strItemDesc);
+
+				m_ItemsArray.SetAt(pItemCtrl->GetName(), (CObject*)pItemCtrl);
+			}
+
+			strItemName.Format("CA_%d_%d_ALL", nPort, bAddr);
+			strItemDesc.Format("%d站全部控制", bAddr);
 			pItemCtrl = new YShortItem(dwItemPId++, strItemName, strItemDesc);
-
 			m_ItemsArray.SetAt(pItemCtrl->GetName(), (CObject*)pItemCtrl);
 		}
-
-		strItemName.Format("CA_%d_ALL", bAddr);
-		strItemDesc.Format("%d站全部控制", bAddr);
-		pItemCtrl = new YShortItem(dwItemPId++, strItemName, strItemDesc);
-		m_ItemsArray.SetAt(pItemCtrl->GetName(), (CObject*)pItemCtrl);
 	}
-
-
 }
 
 void YSerialDevice::LoadItems(CArchive& ar)
@@ -198,21 +198,23 @@ int YSerialDevice::QueryOnce()
 		return 0; 
 	y_lUpdateTimer = 0;
 
-	if (!m_Com.IsOpen())
-	{
-		CIniFile iniFile(m_strConfigFile);
-		m_nComPort = iniFile.GetUInt("ComInfo", "ComPort", 1);
-		m_nBaudRate = iniFile.GetUInt("ComInfo", "BaudRate", 9600);
-		m_nParity = iniFile.GetUInt("ComInfo", "Parity", 0);
+	CIniFile iniFile(m_strConfigFile);
 
-		bool bOpen = m_Com.Open(m_nComPort, m_nBaudRate, m_nParity);
-	}
-	else {
-		CIniFile iniFile(m_strConfigFile);
-		int nTimeOut = iniFile.GetInt("ComInfo", "TimeOut", 5000);
-		for (int k = 0;k<m_strSlaveAddr.GetCount();k++)
+	CStringArray _ComPortArray, _SlaveAddr;
+	iniFile.GetArray("ComInfo", "ComPort", &_ComPortArray);
+	int nTimeOut = iniFile.GetInt("ComInfo", "TimeOut", 5000);
+	CString strSec;
+	for (int j = 0; j < _ComPortArray.GetCount(); j++)
+	{
+		m_Lock.Lock();
+		int nPort = atoi(_ComPortArray.GetAt(j));
+		m_Com.Open(nPort, m_nBaudRate, m_nParity);
+
+		strSec.Format("COM%d", nPort);
+		iniFile.GetArray(strSec, "Addr", &_SlaveAddr);
+		for (int k = 0; k < _SlaveAddr.GetCount(); k++)
 		{
-			BYTE bAddr = atoi(m_strSlaveAddr.GetAt(k));
+			BYTE bAddr = atoi(_SlaveAddr.GetAt(k));
 
 			BYTE bSend[8] = { 0 };
 			bSend[0] = bAddr;
@@ -226,7 +228,6 @@ int YSerialDevice::QueryOnce()
 			bSend[6] = HIBYTE(wCrc);
 			bSend[7] = LOBYTE(wCrc);
 
-			m_ComSec.Lock();
 			m_Com.Write(bSend, 8);
 
 			CString strHex = Bin2HexStr(bSend, 8);
@@ -239,8 +240,6 @@ int YSerialDevice::QueryOnce()
 				strHex = Bin2HexStr(recvBuf, dwRead);
 				OutPutLog("Recv：" + strHex);
 			}
-
-			m_ComSec.Unlock();
 
 			if (dwRead == 17)
 			{
@@ -262,7 +261,7 @@ int YSerialDevice::QueryOnce()
 					for (int i = 1; i <= 12; i++)
 					{
 						strValue = strHex.Left(2);
-						strItemName.Format("S_%d_%d",bAddr, i);
+						strItemName.Format("S_%d_%d_%d",nPort, bAddr, i);
 						YOPCItem* pItem = GetItemByName(strItemName);
 						if (pItem)
 						{
@@ -272,8 +271,12 @@ int YSerialDevice::QueryOnce()
 					}
 				}
 			}
-		}	
+		}
+
+		m_Com.Close();
+		m_Lock.Unlock();
 	}
+
 	return 0;
 }
 
@@ -358,6 +361,7 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 	{
 		return false;
 	}
+	int nPort = 0;
 	int nAddr = 0;
 	int nLoop = 0;
 
@@ -365,44 +369,48 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 	int nTimeOut = iniFile.GetInt("ComInfo", "TimeOut", 5000);
 	if (strItemName.Left(2) == "CA")
 	{
-		sscanf(strItemName, "CA_%d", &nAddr);
-
-		BYTE bSend[8] = { 0 };
-		bSend[0] = nAddr;
-		bSend[1] = 0x06;
-		bSend[2] = 0x00;
-		bSend[3] = (nValue == 0) ? 1 : 2;
-		bSend[4] = 0x00;
-		bSend[5] = (nValue == 0) ? 0 : 1;
-		WORD wCrc = 0;
-		CheckCRCModBus(bSend, 6, &wCrc);
-		bSend[6] = HIBYTE(wCrc);
-		bSend[7] = LOBYTE(wCrc);
-
-		m_ComSec.Lock();
-		m_Com.Write(bSend, 8);
-
-		CString strSendHex = Bin2HexStr(bSend, 8);
-		OutPutLog("Send：" + strSendHex);
-
-		BYTE recvBuf[60] = { 0 };
-		DWORD dwRead = m_Com.Read(recvBuf, 29, nTimeOut);
-
-		m_ComSec.Unlock();
-		if (dwRead > 0)
+		sscanf(strItemName, "CA_%d_%d", &nPort,&nAddr);
+		m_Lock.Lock();
+		if (m_Com.Open(nPort,m_nBaudRate,m_nParity))
 		{
-			CString strRecvHex = Bin2HexStr(recvBuf, dwRead);
-			OutPutLog("Recv：" + strRecvHex);
-			if (strSendHex == strRecvHex)
+			BYTE bSend[8] = { 0 };
+			bSend[0] = nAddr;
+			bSend[1] = 0x06;
+			bSend[2] = 0x00;
+			bSend[3] = (nValue == 0) ? 1 : 2;
+			bSend[4] = 0x00;
+			bSend[5] = (nValue == 0) ? 0 : 1;
+			WORD wCrc = 0;
+			CheckCRCModBus(bSend, 6, &wCrc);
+			bSend[6] = HIBYTE(wCrc);
+			bSend[7] = LOBYTE(wCrc);
+
+			m_Com.Write(bSend, 8);
+
+			CString strSendHex = Bin2HexStr(bSend, 8);
+			OutPutLog("Send：" + strSendHex);
+
+			BYTE recvBuf[60] = { 0 };
+			DWORD dwRead = m_Com.Read(recvBuf, 29, nTimeOut);
+			if (dwRead > 0)
 			{
-				return true;
+				CString strRecvHex = Bin2HexStr(recvBuf, dwRead);
+				OutPutLog("Recv：" + strRecvHex);
+				if (strSendHex == strRecvHex)
+				{
+					return true;
+				}
 			}
+			m_Com.Close();
 		}
+		m_Lock.Unlock();
+		
 	}
 	else if (strItemName.Left(2) == "CS")
 	{
-		sscanf(strItemName, "CS_%d_%d", &nAddr, &nLoop);
-		if (m_Com.IsOpen())
+		sscanf(strItemName, "CS_%d_%d_%d",&nPort, &nAddr, &nLoop);
+		m_Lock.Lock();
+		if (m_Com.Open(nPort, m_nBaudRate, m_nParity))
 		{
 			BYTE bSend[8] = { 0 };
 			bSend[0] = nAddr;
@@ -416,7 +424,6 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 			bSend[6] = HIBYTE(wCrc);
 			bSend[7] = LOBYTE(wCrc);
 
-			m_ComSec.Lock();
 			m_Com.Write(bSend, 8);
 
 			CString strSendHex = Bin2HexStr(bSend, 8);
@@ -425,7 +432,6 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 			BYTE recvBuf[60] = { 0 };
 			DWORD dwRead = m_Com.Read(recvBuf, 29, nTimeOut);
 
-			m_ComSec.Unlock();
 			if (dwRead > 0)
 			{
 				CString strRecvHex = Bin2HexStr(recvBuf, dwRead);
@@ -435,7 +441,9 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 					return true;
 				}
 			}
+			m_Com.Close();
 		}
+		m_Lock.Unlock();
 	}
 	return false;
 }

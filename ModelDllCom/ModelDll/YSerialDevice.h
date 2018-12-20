@@ -30,11 +30,10 @@ public:
 public:
 	long y_lUpdateTimer;
 public:
+	CMutex m_Lock;
 	CString m_strConfigFile;
-	int m_nComPort;
 	int m_nBaudRate;
 	int m_nParity;
-	CStringArray m_strSlaveAddr;
 public:
 	int m_nUseLog;
 	CLog m_Log;
