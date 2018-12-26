@@ -241,7 +241,7 @@ int YSerialDevice::QueryOnce()
 				OutPutLog("Recv£º" + strHex);
 			}
 
-			if (dwRead == 17)
+			if (dwRead == 29)
 			{
 				CheckCRCModBus(recvBuf, dwRead - 2, &wCrc);
 				if (recvBuf[dwRead - 1] == LOBYTE(wCrc) && recvBuf[dwRead - 2] == HIBYTE(wCrc))
@@ -260,7 +260,7 @@ int YSerialDevice::QueryOnce()
 					CString strItemName, strValue;
 					for (int i = 1; i <= 12; i++)
 					{
-						strValue = strHex.Left(2);
+						strValue = strHex.Left(4);
 						strItemName.Format("S_%d_%d_%d",nPort, bAddr, i);
 						YOPCItem* pItem = GetItemByName(strItemName);
 						if (pItem)
