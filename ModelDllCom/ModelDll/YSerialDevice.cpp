@@ -364,7 +364,7 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 	int nPort = 0;
 	int nAddr = 0;
 	int nLoop = 0;
-
+	bool bResult = false;
 	CIniFile iniFile(m_strConfigFile);
 	int nTimeOut = iniFile.GetInt("ComInfo", "TimeOut", 5000);
 	if (strItemName.Left(2) == "CA")
@@ -398,7 +398,7 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 				OutPutLog("Recv£º" + strRecvHex);
 				if (strSendHex == strRecvHex)
 				{
-					return true;
+					bResult = true;
 				}
 			}
 			m_Com.Close();
@@ -438,14 +438,14 @@ bool YSerialDevice::SetDeviceItemValue(CBaseItem* pAppItem)
 				OutPutLog("Recv£º" + strRecvHex);
 				if (strSendHex == strRecvHex )
 				{
-					return true;
+					bResult = true;
 				}
 			}
 			m_Com.Close();
 		}
 		m_Lock.Unlock();
 	}
-	return false;
+	return bResult;
 }
 
 void YSerialDevice::OutPutLog(CString strMsg)
